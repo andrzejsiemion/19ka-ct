@@ -1,0 +1,1 @@
+*/10 * * * * /app/git-push.sh

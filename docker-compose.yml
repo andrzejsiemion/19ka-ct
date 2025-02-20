@@ -1,0 +1,71 @@
+networks:
+  thz-laboratory:
+    driver: bridge
+
+services:
+  logger:
+    container_name: logger
+    build:
+      context: ./logger
+      dockerfile: Dockerfile
+    image: logger
+    privileged: true
+    networks:
+      - thz-laboratory
+    volumes:
+      - ./data:/app/data
+    environment:
+      TZ: Europe/Berlin
+      LOG_INTERVAL: 60
+      DHT_PIN: D4
+      CSV_DIRECTORY: data
+      INFLUXDB_URL: http://influxdb:8086
+      INFLUXDB_TOKEN: ${INFLUXDB_TOKEN}  
+      INFLUXDB_ORG: my_org
+      INFLUXDB_BUCKET: sensor_data
+    depends_on:
+      - influxdb
+    restart: unless-stopped
+    env_file:
+      - .env  
+
+  influxdb:
+    container_name: influxdb
+    image: influxdb:latest
+    networks:
+      - thz-laboratory
+    ports:
+      - "8086:8086"
+    volumes:
+      - ./influxdb-data:/var/lib/influxdb2
+    environment:
+      DOCKER_INFLUXDB_INIT_MODE: setup
+      DOCKER_INFLUXDB_INIT_USERNAME: admin
+      DOCKER_INFLUXDB_INIT_PASSWORD: ${DOCKER_INFLUXDB_INIT_PASSWORD}  
+      DOCKER_INFLUXDB_INIT_ORG: thz_laboratory
+      DOCKER_INFLUXDB_INIT_BUCKET: sensor_data
+      DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${DOCKER_INFLUXDB_INIT_ADMIN_TOKEN}  
+    restart: unless-stopped
+    env_file:
+      - .env  
+
+  git-sync:
+    container_name: git-sync
+    build:
+      context: ./git-sync
+      dockerfile: Dockerfile
+    image: git-sync
+    networks:
+      - thz-laboratory
+    volumes:
+      - ${SSH_PRIVATE_KEY_PATH}:/root/.ssh/id_rsa:ro  
+      - ./data:/app/data
+    environment:
+      GIT_REPO: ${GIT_REPO}  
+      GIT_BRANCH: main
+      GIT_EMAIL: ${GIT_EMAIL} 
+      GIT_NAME: ${GIT_NAME}  
+      CRON_SCHEDULE: "*/10 * * * *"
+    restart: unless-stopped
+    env_file:
+      - .env  

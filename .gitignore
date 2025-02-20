@@ -1,0 +1,21 @@
+# Ignore all CSV files
+*.csv
+
+# Ignore sensitive environment files
+.env
+
+# Ignore contents inside data and influxdb-data folders but keep the folders
+# Volume for influxdb data
+influxdb-data/*
+!influxdb-data/.emptyfile
+
+# Volume for cvs files
+data/*
+!data/.emptyfile
+
+# Volume for credentials
+creds/*
+!creds/.emptyfile
+
+
+
