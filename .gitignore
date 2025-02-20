@@ -1,3 +1,6 @@
+# Ignore mac specific data
+.DS_Store
+
 # Ignore all CSV files
 *.csv
 
