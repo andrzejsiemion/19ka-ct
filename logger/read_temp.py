@@ -4,46 +4,59 @@ import os
 import board
 import adafruit_dht
 from datetime import datetime
-from influxdb_client import InfluxDBClient, Point, WriteOptions, WritePrecision
+import influxdb_client
+from influxdb_client.client.write_api import SYNCHRONOUS
 
 print("Starting DHT logger...")  # Debugging message
 
-# Read DHT pin from environment variable (default: board.D4)
+# ENVS
 LOG_INTERVAL = int(os.getenv("LOG_INTERVAL", 60)) # Default 60 seconds if not set
-DHT_PIN_NUMBER = os.getenv("DHT_PIN", "D4")  # Default to D4 if not set
-DHT_RETRIES = int(os.getenv("DHT_RETRIES", 3))
+DHT_PIN = os.getenv("DHT_PIN", "D4")  # Default to D4 if not set
+DHT_RETRIES = int(os.getenv("DHT_RETRIES", 3)) # Default 3 retries if not set
 
-INFLUXDB_URL = os.getenv("INFLUXDB_URL", "http://influxdb:8086")
+DHT_SENSOR_NAME = os.getenv("DHT_SENSOR_NAME", f"sensor_{DHT_PIN}")
+
+print(f"Using DHT_PIN: {DHT_PIN}")  # Debugging message
+print(f"Logging interval: {LOG_INTERVAL} seconds")  # Debugging message
+print(f"Number of retries for sensor read: {DHT_RETRIES}")
+
+INFLUXDB_URL = os.getenv("INFLUXDB_URL", "http://influxdb:8086") 
 INFLUXDB_TOKEN = os.getenv("INFLUXDB_TOKEN", "my_secret_token")
 INFLUXDB_ORG = os.getenv("INFLUXDB_ORG", "my_org")
 INFLUXDB_BUCKET = os.getenv("INFLUXDB_BUCKET", "sensor_data")
 
-print(f"Using DHT_PIN: {DHT_PIN_NUMBER}")  # Debugging message
-print(f"Logging interval: {LOG_INTERVAL} seconds")  # Debugging message
-
+print(f"InfluxDB url: {INFLUXDB_URL}")  # Debugging message
+print(f"InfluxDB organization: {INFLUXDB_ORG}")  # Debugging message
+print(f"InfluxDB bucket: {INFLUXDB_BUCKET}")  # Debugging message
 
 # Ensure CSV directory exists
-os.makedirs('/app/data', exist_ok=True)
-
-# Convert pin string to board attribute dynamically
-try:
-    DHT_PIN = getattr(board, DHT_PIN_NUMBER)
-    print("GPIO Pin initialized successfully.")
-except AttributeError:
-    raise ValueError(f"Invalid GPIO pin specified: {DHT_PIN_NUMBER}")
-    exit(1)
+data_folder = os.path.join('/app/data/', DHT_SENSOR_NAME)
+os.makedirs(data_folder, exist_ok=True)
+print(f"Directory created or already exists: {data_folder}")
 
 print("Initializing DHT sensor...")  # Debugging message
+# Convert pin string to board attribute dynamically
+try:
+    DHT_PIN = getattr(board, DHT_PIN)
+    print(f"GPIO Pin initialized successfully (DHT pin: {DHT_PIN}).")
+except AttributeError:
+    raise ValueError(f"Invalid GPIO pin specified: {DHT_PIN}")
+    exit(1)
 
 # Initialize DHT sensor
 dht_sensor = adafruit_dht.DHT22(DHT_PIN, use_pulseio=False)
+print("DHT sensor initialiazed.")  # Debugging message
 
-print("Initializing InfluxDB connection...")  # Debugging message
+print(f"Initializing InfluxDB connection: URL: {INFLUXDB_URL} ORG: {INFLUXDB_ORG}")  # Debugging message
 
 # Initialize InfluxDB client
 try:
-    influx_client = InfluxDBClient(url=INFLUXDB_URL, token=INFLUXDB_TOKEN, org=INFLUXDB_ORG)
-    write_api = influx_client.write_api(write_options=WriteOptions(batch_size=1))
+    client = influxdb_client.InfluxDBClient(
+        url=INFLUXDB_URL, 
+        token=INFLUXDB_TOKEN, 
+        org=INFLUXDB_ORG
+        )
+    write_api = client.write_api(write_options=SYNCHRONOUS)
     print("Connected to InfluxDB successfully.")  # Debugging message
 except Exception as e:
     print(f"Failed to connect to InfluxDB: {e}")
@@ -52,7 +65,7 @@ except Exception as e:
 print("Ensuring CSV file exists...")
 # Function to get today's CSV filename
 def get_csv_filename():
-    return os.path.join('/app/data', datetime.now().strftime("%Y-%m-%d") + ".csv")
+    return os.path.join('/app/data', DHT_SENSOR_NAME, datetime.now().strftime("%Y-%m-%d") + ".csv")
 
 # Ensure CSV file has a header if it's newly created
 def initialize_csv():
@@ -61,12 +74,15 @@ def initialize_csv():
         print(f"Creating new CSV file: {filename}")
         with open(filename, 'w', newline='') as file:
             writer = csv.writer(file)
+            writer.writerow([f"# Sensor Name: {DHT_SENSOR_NAME}, Pin: {DHT_PIN}, InfluxDB Org: {INFLUXDB_ORG}, InfluxDB Bucket: {INFLUXDB_BUCKET}"])
             writer.writerow(["date", "time", "temperature", "humidity"])
     return filename
 
-# Function to log temperature with 3 retries
 def log_temperature():
     print("Attempting to read sensor data...")
+    
+    sensor_id = DHT_SENSOR_NAME
+    
     filename = initialize_csv()
 
     temperature = None
@@ -86,29 +102,46 @@ def log_temperature():
             print(f"Attempt {attempt}/{DHT_RETRIES}: Sensor error: {error}, retrying...")
             time.sleep(2)  # Wait before retrying
 
-    if humidity is not None and temperature is not None:
-        now = datetime.now()
+    if temperature is None or humidity is None:
+        print("Failed to get valid temperature or humidity data.")
+        return
+    
+    # Read time
+    now = datetime.now()
+    now_db = now.isoformat() + "Z" # convert date to ISO format for InfluxDB
+
+    print(f"Writing to CSV: Temp={temperature}°C, Humidity={humidity}%, Timestamp={now}")
+
+    try:
         date_str = now.strftime("%Y-%m-%d")
         time_str = now.strftime("%H:%M:%S")
 
         with open(filename, 'a', newline='') as file:
             writer = csv.writer(file)
             writer.writerow([date_str, time_str, temperature, humidity])
-        print(f"Logged: {date_str} {time_str} - Temp={temperature:.1f}°C, Humidity={humidity:.1f}% (CSV filename: {filename})")
+        print(f"Successfully written to CSV: {date_str} {time_str} - Temp={temperature:.1f}°C, Humidity={humidity:.1f}% (CSV filename: {filename})")
+    
+    except Exception as e:
+        print(f"Error writing to CSV file: {e}")
 
-        # Write to InfluxDB only if connection is active
-        if influx_client:
-            point = Point("temperature_humidity") \
-                .tag("sensor", "DHT22") \
-                .field("temperature", temperature) \
-                .field("humidity", humidity) \
-                .time(now)
-            write_api.write(bucket=INFLUXDB_BUCKET, org=INFLUXDB_ORG, record=point)
-            print(f"Logged: {date_str} {time_str} - Temp={temperature:.1f}°C, Humidity={humidity:.1f}% (Sent to InfluxDB)")
-        else:
-            print(f"Logged: {date_str} {time_str} - Temp={temperature:.1f}°C, Humidity={humidity:.1f}% (InfluxDB not available)")
-    else:
-        print(f"Failed to retrieve valid data after {DHT_RETRIES} attempts.")
+    # Debugging print before writing
+    print(f"Writing to DB: Temp={temperature}°C, Humidity={humidity}%, Timestamp={now_db}")
+
+    try:
+        p = (
+            influxdb_client.Point("temperature_humidity")
+            .tag("sensor_id", sensor_id)
+            .field("temperature", temperature)
+            .field("humidity", humidity)
+            .time(now_db)
+        )
+
+        write_api.write(bucket=INFLUXDB_BUCKET, org=INFLUXDB_ORG, record=p)
+        print(f"Successfully written to DB: Temp={temperature}°C, Humidity={humidity}% with tag={sensor_id} at {now_db}")
+
+    except Exception as e:
+        print(f"Error writing to DB: {e}")
+   
 
 if __name__ == "__main__":
     print("Ensuring CSV file exists...")
@@ -129,7 +162,7 @@ if __name__ == "__main__":
     # Ensure propper cleanup when exiting
     if influx_client:
         write_api.close()
-        influx_client.close()
+        client.close()
         print("InfluxDB connection closed.")
     print("Logger stopped")
 
