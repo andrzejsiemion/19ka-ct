@@ -15,36 +15,44 @@ services:
     volumes:
       - ./data:/app/data
     environment:
-      TZ: Europe/Berlin
+      TZ: Europe/Warsaw
       LOG_INTERVAL: 60
       DHT_PIN: D4
-      CSV_DIRECTORY: data
+      DHT_RETRIES: 4
+      DHT_SENSOR_NAME: "internal_sensor"
       INFLUXDB_URL: http://influxdb:8086
       INFLUXDB_TOKEN: ${INFLUXDB_TOKEN}  
-      INFLUXDB_ORG: thz_laboratory
+      INFLUXDB_ORG: thz_lab
       INFLUXDB_BUCKET: sensor_data
     depends_on:
-      - influxdb
+      influxdb:
+        condition: service_healthy
     restart: unless-stopped
     env_file:
       - .env  
 
   influxdb:
     container_name: influxdb
-    image: influxdb:latest
+    image: influxdb:2.7
     networks:
       - thz-laboratory
     ports:
       - "8086:8086"
     volumes:
-      - ./influxdb-data:/var/lib/influxdb2
+      - ./influxdb-data:/var/lib/influxdb2 # Persist entire InfluxDB data
     environment:
       DOCKER_INFLUXDB_INIT_MODE: setup
       DOCKER_INFLUXDB_INIT_USERNAME: admin
       DOCKER_INFLUXDB_INIT_PASSWORD: ${DOCKER_INFLUXDB_INIT_PASSWORD}  
-      DOCKER_INFLUXDB_INIT_ORG: thz_laboratory
+      DOCKER_INFLUXDB_INIT_ORG: thz_lab
       DOCKER_INFLUXDB_INIT_BUCKET: sensor_data
       DOCKER_INFLUXDB_INIT_ADMIN_TOKEN: ${DOCKER_INFLUXDB_INIT_ADMIN_TOKEN}  
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://influxdb:8086/health"]
+      interval: 10s
+      retries: 5
+      start_period: 10s
+      timeout: 5s
     restart: unless-stopped
     env_file:
       - .env  
