@@ -176,7 +176,7 @@ if __name__ == "__main__":
     except KeyboardInterrupt:
         logger.info("\n Stopping logger...")
     # Ensure propper cleanup when exiting
-    if influx_client:
+    if client:
         write_api.close()
         client.close()
         logger.info("InfluxDB connection closed.")
