@@ -14,7 +14,14 @@ logger.add(
     sys.stdout, 
     format="[{time:HH:mm:ss}] {level}: {message}", 
     level="INFO"
-)
+    )
+
+logger.add(
+    "/app/logs/logger.log", 
+    format="[{time:YYYY-MM-DD HH:mm:ss}] {level}: {message}",
+    level="INFO", 
+    rotation="10MB"
+    )
 
 logger.info("Starting DHT logger...")  # Debugging message
 
