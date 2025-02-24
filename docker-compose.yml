@@ -14,6 +14,7 @@ services:
       - thz-laboratory
     volumes:
       - ./data:/app/data
+      - ./logs:/app/logs
     environment:
       TZ: Europe/Warsaw
       LOG_INTERVAL: 60
